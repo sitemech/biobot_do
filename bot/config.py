@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from dotenv import load_dotenv
+import logging
 
 
 DEFAULT_DO_API_BASE_URL = "https://api.digitalocean.com/v2/gen-ai"
@@ -38,6 +39,13 @@ class BotConfig:
     # Optional agent endpoint + access key for direct endpoint usage
     agent_endpoint: Optional[str] = None
     agent_access_key: Optional[str] = None
+    # Retry/backoff configuration for DigitalOcean API requests
+    api_max_retries: int = 3
+    api_base_backoff: float = 0.5
+    api_max_backoff: float = 60.0
+    # Token-bucket rate limiter for outgoing requests to DigitalOcean
+    api_rate_limit_qps: float = 5.0
+    api_rate_limit_burst: int = 10
 
     @classmethod
     def load(cls, env_path: Optional[str] = None) -> "BotConfig":
@@ -81,6 +89,16 @@ class BotConfig:
         if not agent_id:
             raise RuntimeError("DO_AGENT_ID is not configured")
 
+        # Normalize common legacy base URL value and warn the operator. Some
+        # deployments (older docs/examples) used `/v2/ai`; the correct current
+        # base path is `/v2/gen-ai`. Normalize transparently so existing installs
+        # don't fail with 404s.
+        if base_url and base_url.rstrip("/").endswith("/v2/ai"):
+            logging.getLogger(__name__).warning(
+                "DO_API_BASE_URL uses legacy '/v2/ai' path; normalizing to '/v2/gen-ai'"
+            )
+            base_url = base_url.rstrip("/").replace("/v2/ai", "/v2/gen-ai")
+
         try:
             timeout = float(timeout_str)
         except ValueError as exc:
@@ -94,4 +112,9 @@ class BotConfig:
             request_timeout=timeout,
             agent_endpoint=agent_endpoint,
             agent_access_key=agent_access_key,
+            api_max_retries=int(os.getenv("DO_API_MAX_RETRIES", "3")),
+            api_base_backoff=float(os.getenv("DO_API_BASE_BACKOFF", "0.5")),
+            api_max_backoff=float(os.getenv("DO_API_MAX_BACKOFF", "60")),
+            api_rate_limit_qps=float(os.getenv("DO_API_RATE_QPS", "5")),
+            api_rate_limit_burst=int(os.getenv("DO_API_RATE_BURST", "10")),
         )

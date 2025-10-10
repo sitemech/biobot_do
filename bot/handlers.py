@@ -35,6 +35,11 @@ def build_application(config: BotConfig) -> Application:
         timeout=config.request_timeout,
         agent_endpoint=config.agent_endpoint,
         agent_access_key=config.agent_access_key,
+        max_retries=config.api_max_retries,
+        base_backoff=config.api_base_backoff,
+        max_backoff=config.api_max_backoff,
+           rate_qps=config.api_rate_limit_qps,
+           rate_burst=config.api_rate_limit_burst,
     )
 
     application = (
