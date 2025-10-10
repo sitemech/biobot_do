@@ -1,3 +1,4 @@
 httpx>=0.26.0,<1.0
-python-telegram-bot>=20.7,<21.0
+# Require python-telegram-bot with the rate-limiter extra to enable AIORateLimiter
+python-telegram-bot[rate-limiter]>=20.7,<21.0
 python-dotenv>=1.0.0,<2.0.0
