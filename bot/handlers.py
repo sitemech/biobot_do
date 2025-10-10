@@ -33,6 +33,8 @@ def build_application(config: BotConfig) -> Application:
         agent_id=config.do_agent_id,
         base_url=config.do_api_base_url,
         timeout=config.request_timeout,
+        agent_endpoint=config.agent_endpoint,
+        agent_access_key=config.agent_access_key,
     )
 
     application = (

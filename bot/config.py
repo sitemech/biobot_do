@@ -9,7 +9,7 @@ from typing import Optional
 from dotenv import load_dotenv
 
 
-DEFAULT_DO_API_BASE_URL = "https://api.digitalocean.com/v2/ai"
+DEFAULT_DO_API_BASE_URL = "https://api.digitalocean.com/v2/gen-ai"
 
 
 @dataclass(slots=True)
@@ -35,6 +35,9 @@ class BotConfig:
     do_agent_id: str
     do_api_base_url: str = DEFAULT_DO_API_BASE_URL
     request_timeout: float = 30.0
+    # Optional agent endpoint + access key for direct endpoint usage
+    agent_endpoint: Optional[str] = None
+    agent_access_key: Optional[str] = None
 
     @classmethod
     def load(cls, env_path: Optional[str] = None) -> "BotConfig":
@@ -67,6 +70,8 @@ class BotConfig:
         api_key = os.getenv("DO_API_KEY")
         agent_id = os.getenv("DO_AGENT_ID")
         base_url = os.getenv("DO_API_BASE_URL") or DEFAULT_DO_API_BASE_URL
+        agent_endpoint = os.getenv("AGENT_ENDPOINT")
+        agent_access_key = os.getenv("AGENT_ACCESS_KEY")
         timeout_str = os.getenv("DO_API_TIMEOUT", "30")
 
         if not token:
@@ -87,4 +92,6 @@ class BotConfig:
             do_agent_id=agent_id,
             do_api_base_url=base_url,
             request_timeout=timeout,
+            agent_endpoint=agent_endpoint,
+            agent_access_key=agent_access_key,
         )
