@@ -31,7 +31,11 @@ if [ "$other_count" -ne 0 ]; then
 fi
 
 echo "Preparing repository in $APP_DIR"
+# Decide target directory: if current dir is a git repo, use it; otherwise
+# if directory non-empty we'll clone into ./app to avoid git clone failure.
+TARGET_DIR="."
 if [ -d .git ]; then
+  TARGET_DIR="."
   echo "Existing git repository detected. Updating from origin..."
   # Try to update to latest main; fail safely if remote/branch is different
   git fetch origin || true
@@ -41,8 +45,20 @@ if [ -d .git ]; then
     echo "Warning: origin/main not found. Skipping automatic pull."
   fi
 else
-  echo "Cloning repository $REPO_URL into $APP_DIR"
-  git clone "$REPO_URL" .
+  if [ "$other_count" -ne 0 ]; then
+    TARGET_DIR="app"
+    echo "Directory is not empty and not a git repo. Will clone into ./$TARGET_DIR"
+    mkdir -p "$TARGET_DIR"
+    git clone "$REPO_URL" "$TARGET_DIR"
+  else
+    echo "Cloning repository $REPO_URL into $APP_DIR"
+    git clone "$REPO_URL" .
+  fi
+fi
+
+# Work inside the target directory for further steps
+if [ "$TARGET_DIR" != "." ]; then
+  cd "$TARGET_DIR"
 fi
 
 if ! command -v python3 >/dev/null 2>&1; then
