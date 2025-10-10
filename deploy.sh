@@ -30,8 +30,20 @@ if [ "$other_count" -ne 0 ]; then
   esac
 fi
 
-echo "Cloning repository $REPO_URL into $APP_DIR"
-git clone "$REPO_URL" .
+echo "Preparing repository in $APP_DIR"
+if [ -d .git ]; then
+  echo "Existing git repository detected. Updating from origin..."
+  # Try to update to latest main; fail safely if remote/branch is different
+  git fetch origin || true
+  if git rev-parse --verify origin/main >/dev/null 2>&1; then
+    git pull --ff-only origin main || git pull origin main || true
+  else
+    echo "Warning: origin/main not found. Skipping automatic pull."
+  fi
+else
+  echo "Cloning repository $REPO_URL into $APP_DIR"
+  git clone "$REPO_URL" .
+fi
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "python3 not found. Please install Python 3.11+ and rerun the script." >&2
