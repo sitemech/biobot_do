@@ -18,7 +18,10 @@ APP_DIR="."
 
 echo "Starting deployment script"
 
-if [ "$(ls -A | wc -l)" -ne 0 ]; then
+script_name="$(basename "$0")"
+# Consider the directory empty if the only file present is this script itself.
+other_count=$(ls -A | grep -v -x "$script_name" | wc -l || true)
+if [ "$other_count" -ne 0 ]; then
   echo "Warning: current directory is not empty. This script expects an empty directory or a fresh workspace."
   read -r -p "Continue anyway? (y/N) " yn
   case "$yn" in
