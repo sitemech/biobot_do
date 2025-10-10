@@ -64,6 +64,13 @@ def build_application(config: BotConfig) -> Application:
 
 async def _on_startup(application: Application) -> None:
     logger.info("Telegram bot started as @%s", application.bot.username)
+    # Ensure any previously configured webhook is removed to avoid duplicate
+    # deliveries when running in polling mode.
+    try:
+        await application.bot.delete_webhook()
+        logger.info("Removed existing Telegram webhook (if any)")
+    except Exception:
+        logger.debug("Could not delete webhook (it may not exist).", exc_info=True)
 
 
 async def _on_shutdown(application: Application) -> None:
