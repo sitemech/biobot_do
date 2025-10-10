@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Dict, Optional
 
 import httpx
@@ -46,6 +48,7 @@ class DigitalOceanAgentClient:
         # Token-bucket rate limiter (requests per second and burst)
         rate_qps: float = 5.0,
         rate_burst: int = 10,
+        rate_cooldown: float = 5.0,
     ) -> None:
         self._api_key = api_key
         self._agent_id = agent_id
@@ -67,6 +70,8 @@ class DigitalOceanAgentClient:
         # Use event loop time for monotonic timestamp
         self._last_refill = asyncio.get_event_loop().time()
         self._rate_lock = asyncio.Lock()
+        self._cooldown_until = 0.0
+        self._default_retry_after = float(max(rate_cooldown, 0.0))
 
     async def close(self) -> None:
         """Close the underlying HTTP client if owned by the instance."""
@@ -192,15 +197,12 @@ class DigitalOceanAgentClient:
                 if resp.status_code != 429:
                     return resp
 
-                # Handle 429: try to read Retry-After header
-                retry_after = None
-                try:
-                    if "Retry-After" in resp.headers:
-                        retry_after = float(resp.headers.get("Retry-After") or 0)
-                except Exception:
-                    retry_after = None
-
+                # Handle 429: try to read Retry-After header/body hints and register cooldown
+                retry_after = self._parse_retry_after_header(resp)
                 detail = self._safe_json(resp)
+                if retry_after is None:
+                    retry_after = self._extract_retry_after_from_body(detail)
+                await self._register_cooldown(retry_after)
                 logger.warning(
                     "Received 429 from DigitalOcean agent endpoint (attempt %d/%d): %s",
                     attempt + 1,
@@ -225,25 +227,33 @@ class DigitalOceanAgentClient:
         raise RuntimeError("Failed to complete request with retries")
 
     async def _acquire_token(self) -> None:
-        """Acquire a token from the token-bucket. Waits until a token is available."""
-        async with self._rate_lock:
-            now = asyncio.get_event_loop().time()
-            # refill tokens
-            elapsed = max(0.0, now - self._last_refill)
-            refill = elapsed * self._rate_qps
-            if refill > 0:
-                self._tokens = min(self._rate_burst, self._tokens + refill)
-                self._last_refill = now
-            if self._tokens >= 1.0:
-                self._tokens -= 1.0
-                return
-            # need to wait for next token
-            needed = 1.0 - self._tokens
-            wait_seconds = needed / self._rate_qps if self._rate_qps > 0 else 1.0
-        # release lock while sleeping
-        await asyncio.sleep(wait_seconds)
-        # After sleep, try again (recursive but safe)
-        await self._acquire_token()
+        """Acquire a token from the token-bucket. Wait until a token is available."""
+
+        loop = asyncio.get_event_loop()
+        while True:
+            async with self._rate_lock:
+                now = loop.time()
+
+                if now < self._cooldown_until:
+                    wait_seconds = self._cooldown_until - now
+                else:
+                    elapsed = max(0.0, now - self._last_refill)
+                    if elapsed > 0:
+                        refill = elapsed * self._rate_qps
+                        if refill > 0:
+                            self._tokens = min(self._rate_burst, self._tokens + refill)
+                        self._last_refill = now
+
+                    if self._tokens >= 1.0:
+                        self._tokens -= 1.0
+                        return
+
+                    needed = 1.0 - self._tokens
+                    wait_seconds = (
+                        needed / self._rate_qps if self._rate_qps > 0 else 1.0
+                    )
+
+            await asyncio.sleep(max(wait_seconds, 0.01))
 
     @property
     def _headers(self) -> Dict[str, str]:
@@ -304,3 +314,69 @@ class DigitalOceanAgentClient:
                     return node
         logger.warning("Falling back to raw response for reply text: %s", data)
         return str(data)
+
+    def _parse_retry_after_header(self, response: httpx.Response) -> Optional[float]:
+        header_value = response.headers.get("Retry-After")
+        if not header_value:
+            return None
+        try:
+            value = float(header_value)
+            return max(0.0, value)
+        except (TypeError, ValueError):
+            try:
+                dt = parsedate_to_datetime(header_value)
+            except (TypeError, ValueError, OverflowError):
+                return None
+            if dt is None:
+                return None
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
+            delta = (dt - now).total_seconds()
+            return max(0.0, delta)
+
+    def _extract_retry_after_from_body(self, data: Dict[str, Any]) -> Optional[float]:
+        candidates = [
+            ("retry_after",),
+            ("retryAfter",),
+            ("error", "retry_after"),
+            ("error", "retryAfter"),
+            ("meta", "retry_after"),
+        ]
+
+        for path in candidates:
+            node: Any = data
+            for key in path:
+                if isinstance(node, dict) and key in node:
+                    node = node[key]
+                else:
+                    break
+            else:
+                try:
+                    value = float(node)
+                except (TypeError, ValueError):
+                    continue
+                return max(0.0, value)
+        return None
+
+    async def _register_cooldown(self, retry_after: Optional[float]) -> None:
+        wait_value: Any
+        if retry_after in (None, 0, "0"):
+            wait_value = self._default_retry_after
+        else:
+            wait_value = retry_after
+        try:
+            wait = float(wait_value)
+        except (TypeError, ValueError):
+            wait = self._default_retry_after
+        if wait <= 0:
+            return
+        loop = asyncio.get_event_loop()
+        now = loop.time()
+        async with self._rate_lock:
+            target = now + wait
+            if target > self._cooldown_until:
+                self._cooldown_until = target
+            self._last_refill = now
+            # Drop available tokens so that the next request waits until cooldown expires
+            self._tokens = 0.0

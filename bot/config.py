@@ -46,6 +46,7 @@ class BotConfig:
     # Token-bucket rate limiter for outgoing requests to DigitalOcean
     api_rate_limit_qps: float = 5.0
     api_rate_limit_burst: int = 10
+    api_rate_limit_cooldown: float = 5.0
 
     @classmethod
     def load(cls, env_path: Optional[str] = None) -> "BotConfig":
@@ -117,4 +118,5 @@ class BotConfig:
             api_max_backoff=float(os.getenv("DO_API_MAX_BACKOFF", "60")),
             api_rate_limit_qps=float(os.getenv("DO_API_RATE_QPS", "5")),
             api_rate_limit_burst=int(os.getenv("DO_API_RATE_BURST", "10")),
+            api_rate_limit_cooldown=float(os.getenv("DO_API_RATE_COOLDOWN", "5")),
         )
