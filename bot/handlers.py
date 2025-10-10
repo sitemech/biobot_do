@@ -38,8 +38,9 @@ def build_application(config: BotConfig) -> Application:
         max_retries=config.api_max_retries,
         base_backoff=config.api_base_backoff,
         max_backoff=config.api_max_backoff,
-           rate_qps=config.api_rate_limit_qps,
-           rate_burst=config.api_rate_limit_burst,
+        rate_qps=config.api_rate_limit_qps,
+        rate_burst=config.api_rate_limit_burst,
+        rate_cooldown=config.api_rate_limit_cooldown,
     )
 
     application = (
