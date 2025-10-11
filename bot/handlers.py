@@ -18,11 +18,13 @@ from telegram.ext import (
 )
 
 from .config import BotConfig
-from .do_agent import DigitalOceanAgentClient, DigitalOceanAgentError
+from .do_agent import DigitalOceanAgentClient, DigitalOceanAgentError, AgentResponse
 
 logger = logging.getLogger(__name__)
 
 _SESSION_ID_KEY = "do_agent_session_id"
+_HISTORY_KEY = "do_agent_history"
+MAX_HISTORY = 4
 
 
 def build_application(config: BotConfig) -> Application:
@@ -53,9 +55,12 @@ def build_application(config: BotConfig) -> Application:
     )
 
     application.bot_data["agent_client"] = agent_client
+    # store config for handlers
+    application.bot_data["bot_config"] = config
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("new", new_conversation))
+    application.add_handler(CommandHandler("reset", reset_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, forward_message))
 
@@ -123,8 +128,21 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text("Похоже, сообщение пустое. Попробуй ещё раз.")
         return
 
+    # maintain per-user history in context.user_data
+    history: list[dict] = context.user_data.get(_HISTORY_KEY, [])
+    # append user message
+    history.append({"role": "user", "content": user_message})
+    # trim
+    history = history[-MAX_HISTORY:]
+    context.user_data[_HISTORY_KEY] = history
+
     try:
-        response = await agent_client.send_message(session_id, user_message)
+        # If using endpoint mode, send last N messages (history) so agent has context
+        bot_config: BotConfig = context.application.bot_data.get("bot_config")
+        if bot_config and bot_config.agent_endpoint:
+            response = await agent_client.send_message(session_id, messages=history)
+        else:
+            response = await agent_client.send_message(session_id, message=user_message)
     except DigitalOceanAgentError as exc:
         logger.exception("DigitalOcean Agent error: %s", exc)
         await update.message.reply_text(
@@ -132,7 +150,27 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return
 
-    await update.message.reply_text(response.message)
+    # append assistant reply to history when endpoint used
+    if isinstance(response, AgentResponse):
+        assistant_text = response.message
+    else:
+        # fallback: response may be simple string
+        assistant_text = str(response)
+
+    # store assistant message when using endpoint
+    if bot_config and bot_config.agent_endpoint:
+        history = context.user_data.get(_HISTORY_KEY, [])
+        history.append({"role": "assistant", "content": assistant_text})
+        context.user_data[_HISTORY_KEY] = history[-MAX_HISTORY:]
+
+    await update.message.reply_text(assistant_text)
+
+
+async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Reset conversation context for the current user."""
+    context.user_data.pop(_SESSION_ID_KEY, None)
+    context.user_data.pop(_HISTORY_KEY, None)
+    await update.message.reply_text("Контекст беседы удалён. Начните новую сессию.")
 
 
 async def error_handler(update: object, context: CallbackContext) -> None:

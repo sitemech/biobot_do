@@ -111,18 +111,39 @@ class DigitalOceanAgentClient:
             )
         return str(session_id)
 
-    async def send_message(self, session_id: str, message: str) -> AgentResponse:
-        """Send a user message to the agent and return the assistant reply."""
+    async def send_message(
+        self,
+        session_id: str,
+        message: Optional[str] = None,
+        *,
+        messages: Optional[list[Dict[str, str]]] = None,
+    ) -> AgentResponse:
+        """Send a message or array of messages to the agent and return the assistant reply.
+
+        - For endpoint mode (direct agent endpoint) prefer passing `messages` (OpenAI-like
+          array of dicts with keys `role` and `content`). If `messages` is provided we
+          will send that array. Otherwise, a single user `message` will be wrapped.
+        - For management API mode we keep the previous behaviour and send a single
+          user message (the server-side session stores context).
+        """
         if self._use_endpoint:
             url = f"{self._agent_endpoint}/api/v1/chat/completions"
+            # Prepare messages array: prefer explicit `messages`, else wrap single message
+            if messages is None:
+                if message is None:
+                    raise ValueError("Either message or messages must be provided")
+                payload_messages = [{"role": "user", "content": message}]
+            else:
+                payload_messages = messages
+
             payload = {
-                "messages": [{"role": "user", "content": message}],
+                "messages": payload_messages,
                 "stream": False,
                 "include_retrieval_info": False,
                 "include_functions_info": False,
                 "include_guardrails_info": False,
             }
-            logger.debug("Sending message to agent endpoint %s: %s", url, message)
+            logger.debug("Sending messages to agent endpoint %s: %s", url, payload_messages)
             async with self._lock:
                 response = await self._request_with_retries(
                     "POST", url, headers=self._endpoint_headers, json=payload
@@ -131,6 +152,10 @@ class DigitalOceanAgentClient:
             # Try several extraction heuristics (OpenAI-like or agent response)
             reply = self._extract_endpoint_reply_text(data)
             return AgentResponse(message=reply, raw=data)
+
+        # Management API path: send a single user message (server-side session keeps context)
+        if message is None:
+            raise ValueError("message must be provided for management API mode")
 
         url = f"{self._base_url}/sessions/{session_id}/messages"
         payload = {"role": "user", "content": message}
