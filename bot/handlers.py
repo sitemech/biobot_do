@@ -93,9 +93,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     session_id = await _ensure_session(context)
     await update.message.reply_text(
         (
-            "Привет, {name}! Я подключен к AI Agent на DigitalOcean.\n"
-            "Напиши сообщение, и я передам его агенту.\n"
-            "Используй /new чтобы начать новый диалог."
+            "Привет, {name}! Я бот консультант по продукции компании Биолинкс.\n"
+            "Напишите свой вопрос по продукции компании и я постараюсь на него ответить .\n"
         ).format(name=user_first_name),
         parse_mode=ParseMode.MARKDOWN,
     )
@@ -104,7 +103,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "Отправь текстовое сообщение, и я переправлю его DigitalOcean AI Agent.\n"
+        "Напишите свой вопрос и я постраюсь дать на него ответ.\n"
         "Команда /new завершает текущую сессию и создаёт новую."
     )
 
@@ -114,7 +113,7 @@ async def new_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     await _create_and_store_session(context)
     await update.message.reply_text(
-        "Создана новая сессия. Можешь продолжить диалог с чистого листа!"
+        "Создана новая сессия. Можете продолжить диалог с чистого листа!"
     )
 
 
@@ -125,7 +124,7 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     session_id = await _ensure_session(context)
     user_message = update.message.text.strip()
     if not user_message:
-        await update.message.reply_text("Похоже, сообщение пустое. Попробуй ещё раз.")
+        await update.message.reply_text("Похоже, сообщение пустое. Попробуйте ещё раз.")
         return
 
     # maintain per-user history in context.user_data
@@ -146,7 +145,7 @@ async def forward_message(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     except DigitalOceanAgentError as exc:
         logger.exception("DigitalOcean Agent error: %s", exc)
         await update.message.reply_text(
-            "Не удалось получить ответ от AI Agent. Попробуй чуть позже."
+            "Не удалось получить ответ от нейросети. Попробуй чуть позже."
         )
         return
 
